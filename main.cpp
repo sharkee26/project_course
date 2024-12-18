@@ -1,122 +1,83 @@
-#include <iostream>
+#include <gtk/gtk.h>
 #include <string>
-#include "sqlite3.h"
 
-// Функция для обработки ошибок
-void checkSqlError(int result) 
-{
-    if (result != SQLITE_OK) 
-    {
-        std::cerr << "Ошибка: " << sqlite3_errmsg(nullptr) << std::endl;
-        exit(result);
-    }
-}
-
-// Функция для создания таблицы
-void createTable(sqlite3 *db) 
-{
-    const char *sql = "CREATE TABLE IF NOT EXISTS Users ("
-                      "ID INTEGER PRIMARY KEY AUTOINCREMENT,"
-                      "Name TEXT NOT NULL,"
-                      "Age INTEGER NOT NULL);";
-    
-    char *errMsg;
-    int result = sqlite3_exec(db, sql, nullptr, 0, &errMsg);
-    if (result != SQLITE_OK) 
-    {
-        std::cerr << "Ошибка создания таблицы: " << errMsg << std::endl;
-        sqlite3_free(errMsg);
-    } else 
-    {
-        std::cout << "Таблица создана успешно." << std::endl;
-    }
-}
-
-// Функция для добавления записи
-void insertUser(sqlite3 *db, const std::string &name, int age) 
-{
-    const char *sql = "INSERT INTO Users (Name, Age) VALUES (?, ?);";
-    
-    sqlite3_stmt *stmt;
-    int result = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
-    
-    if (result != SQLITE_OK) 
-    {
-        std::cerr << "Ошибка подготовки SQL: " << sqlite3_errmsg(db) << std::endl;
-        return;
+class ChangeColorsApp {
+public:
+    ChangeColorsApp() {
+        app = gtk_application_new("org.gtk.example", G_APPLICATION_DEFAULT_FLAGS);
+        g_signal_connect(app, "activate", G_CALLBACK(activate), this);
     }
 
-    sqlite3_bind_text(stmt, 1, name.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_int(stmt, 2, age);
-
-    result = sqlite3_step(stmt);
-    
-    if (result != SQLITE_DONE) 
-    {
-        std::cerr << "Ошибка выполнения SQL: " << sqlite3_errmsg(db) << std::endl;
-    } else 
-    {
-        std::cout << "Пользователь добавлен успешно." << std::endl;
+    int run(int argc, char **argv) {
+        return g_application_run(G_APPLICATION(app), argc, argv);
     }
 
-    sqlite3_finalize(stmt);
-}
-
-// Функция для вывода данных из таблицы
-void displayUsers(sqlite3 *db) 
-{
-    const char *sql = "SELECT * FROM Users;";
-    
-    sqlite3_stmt *stmt;
-    int result = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
-    
-    if (result != SQLITE_OK) 
-    {
-        std::cerr << "Ошибка подготовки SQL: " << sqlite3_errmsg(db) << std::endl;
-        return;
+    ~ChangeColorsApp() {
+        g_object_unref(app);
     }
 
-    while ((result = sqlite3_step(stmt)) == SQLITE_ROW) 
-    {
-        int id = sqlite3_column_int(stmt, 0);
-        const unsigned char *name = sqlite3_column_text(stmt, 1);
-        int age = sqlite3_column_int(stmt, 2);
+private:
+    GtkApplication *app;
+    GtkWidget *window;
+
+    static void on_color_changed(GObject *dropdown, GParamSpec *pspec, gpointer user_data) {
+        auto *self = static_cast<ChangeColorsApp*>(user_data);
+
+        // Получаем выбранный цвет
+        GtkStringObject *selected_item = GTK_STRING_OBJECT(gtk_drop_down_get_selected_item(GTK_DROP_DOWN(dropdown)));
+        const gchar *color_name = gtk_string_object_get_string(selected_item);
+
+        // Меняем цвет фона окна
+        self->set_background_color(color_name);
+    }
+
+    static void activate(GtkApplication *app, gpointer user_data) {
+        auto *self = static_cast<ChangeColorsApp*>(user_data);
+        self->create_window();
+    }
+
+    void create_window() {
+        window = gtk_application_window_new(app);
+        gtk_window_set_title(GTK_WINDOW(window), "Colors");
+        gtk_window_set_default_size(GTK_WINDOW(window), 400, 400);
+
+        const char *colors[] = {"White", "Red", "Blue", "Green", "Yellow", nullptr}; 
+        GtkStringList *color_list = gtk_string_list_new(colors); 
+
+        // Создаем выпадающий список
+        GtkWidget *dropdown = gtk_drop_down_new(G_LIST_MODEL(color_list), nullptr); 
+
+        // Подключаем сигнал изменения цвета
+        g_signal_connect(dropdown, "notify::selected-item", G_CALLBACK(on_color_changed), this);
+
+        // Устанавливаем выпадающий список как дочерний элемент окна
+        gtk_window_set_child(GTK_WINDOW(window), dropdown);
+
+        gtk_window_present(GTK_WINDOW(window));
+    }
+
+    void set_background_color(const char* color) {
+        GtkCssProvider *provider = gtk_css_provider_new();
         
-        std::cout << "ID: " << id 
-                  << ", Name: " << name 
-                  << ", Age: " << age 
-                  << std::endl;
+        // Формируем CSS-строку для изменения цвета фона
+        std::string css = std::string("window { background-color: ") + color + "; }";
+        
+        // Загружаем CSS-правила
+        gtk_css_provider_load_from_string(provider, css.c_str());
+        
+        // Применяем CSS-провайдер к контексту стиля окна
+        GdkDisplay *display = gdk_display_get_default();
+        
+        // Добавляем провайдер для текущего дисплея
+        gtk_style_context_add_provider_for_display(display,
+                                                   GTK_STYLE_PROVIDER(provider),
+                                                   GTK_STYLE_PROVIDER_PRIORITY_USER);
+                                                   
+        g_object_unref(provider);
     }
+};
 
-    if (result != SQLITE_DONE) 
-    {
-        std::cerr << "Ошибка выполнения SQL: " << sqlite3_errmsg(db) << std::endl;
-    }
-
-    sqlite3_finalize(stmt);
-}
-
-int main() 
-{
-    sqlite3 *db;
-    
-    // Открытие базы данных
-    int exit = sqlite3_open("test.db", &db);
-    checkSqlError(exit);
-
-    // Создание таблицы
-    createTable(db);
-
-    // Добавление пользователей
-    insertUser(db, "Игорь", 30);
-    insertUser(db, "Женя", 25);
-    insertUser(db, "Женя", 27);
-
-    // Вывод данных из таблицы
-    displayUsers(db);
-
-    // Закрытие базы данных
-    sqlite3_close(db);
-    
-    return 0;
+int main(int argc, char **argv) {
+    ChangeColorsApp app;
+    return app.run(argc, argv);
 }

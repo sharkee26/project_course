@@ -1,12 +1,13 @@
 cmake_minimum_required(VERSION 3.10)
-project(bd VERSION 0.1.0 LANGUAGES C CXX)
+project(GTK VERSION 0.1.0 LANGUAGES C CXX)
 
-add_library(sqlite3 STATIC lib/sqlite3.c)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(GTK REQUIRED gtk4)
 
-add_executable(bd main.cpp)
+add_executable(GTK main.cpp)
 
-target_link_libraries(bd sqlite3) 
-target_include_directories(bd PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib)
+target_link_libraries(GTK ${GTK_LIBRARIES})
+target_include_directories(GTK PRIVATE ${GTK_INCLUDE_DIRS})
 
 include(CTest)
 enable_testing()
